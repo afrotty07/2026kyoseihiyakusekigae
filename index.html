@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>席替え＆ペアリング表示</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+JP:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Inter', 'Noto Sans JP', sans-serif;
+            background-color: #f1f5f9;
+        }
+
+        .grid-container {
+            display: grid;
+            gap: 12px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .grid-cols-8 { grid-template-columns: repeat(8, 1fr); }
+        .grid-cols-9 { grid-template-columns: repeat(9, 1fr); }
+
+        .seat {
+            aspect-ratio: 1 / 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            font-weight: 700;
+            transition: all 0.2s;
+            position: relative;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            border: 3px solid transparent;
+            z-index: 10;
+        }
+
+        .class-a { background-color: #e0f2fe; color: #0369a1; border-color: #bae6fd; }
+        .class-b { background-color: #f0fdf4; color: #15803d; border-color: #dcfce7; }
+
+        .connector {
+            position: absolute;
+            background-color: #94a3b8;
+            z-index: -1;
+            border-radius: 2px;
+        }
+
+        .connector-horizontal {
+            height: 6px;
+            width: 12px;
+            right: -12px;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .connector-vertical {
+            width: 6px;
+            height: 12px;
+            bottom: -12px;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        .group-highlight {
+            box-shadow: 0 0 0 4px rgba(234, 179, 8, 0.3);
+            border-color: #fde047 !important;
+        }
+
+        .tab-button {
+            padding: 8px 16px;
+            font-weight: 700;
+            border-radius: 8px;
+            transition: all 0.2s;
+        }
+
+        .tab-active { background-color: #1e293b; color: white; }
+        .tab-inactive { background-color: #e2e8f0; color: #64748b; }
+
+        /* カスタムスクロールバー */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        @media (max-width: 1024px) {
+            .main-layout { flex-direction: column; }
+            .sidebar { width: 100% !important; border-right: none !important; border-bottom: 1px solid #e2e8f0; }
+        }
+
+        @media (max-width: 768px) {
+            .grid-container { grid-template-columns: repeat(3, 1fr) !important; gap: 8px; }
+            .seat { font-size: 0.8rem; }
+            .connector { display: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="flex min-h-screen main-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar w-80 bg-white border-right border-slate-200 p-6 flex-shrink-0">
+            <h2 class="text-xl font-bold text-slate-800 mb-6">設定</h2>
+            
+            <details class="mb-6 group" open>
+                <summary class="flex items-center justify-between cursor-pointer list-none p-3 bg-slate-50 rounded-lg font-bold text-slate-700 hover:bg-slate-100 transition-colors">
+                    <span>欠席者を選択</span>
+                    <svg class="w-5 h-5 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                </summary>
+                
+                <div class="mt-4 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+                    <div class="space-y-4">
+                        <div>
+                            <h3 class="text-xs font-bold text-sky-600 mb-2 uppercase tracking-tighter">A組</h3>
+                            <div id="absent-list-a" class="grid grid-cols-3 gap-2"></div>
+                        </div>
+                        <div>
+                            <h3 class="text-xs font-bold text-emerald-600 mb-2 uppercase tracking-tighter">B組</h3>
+                            <div id="absent-list-b" class="grid grid-cols-3 gap-2"></div>
+                        </div>
+                    </div>
+                </div>
+            </details>
+
+            <div class="space-y-4">
+                <div class="p-4 bg-amber-50 rounded-lg border border-amber-200">
+                    <p class="text-xs text-amber-800 leading-relaxed font-medium">
+                        ※チェックを入れた人は配置から除外されます。残った人数でペア・グループを組みます。
+                    </p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="flex-grow p-4 md:p-8 overflow-x-hidden">
+            <div class="max-w-4xl mx-auto">
+                <header class="text-center mb-10">
+                    <h1 class="text-3xl font-extrabold text-slate-800 mb-4">席替え＆ペアリング表示</h1>
+                    
+                    <div class="flex justify-center gap-2 mb-6">
+                        <button id="mode2" onclick="setMode(2)" class="tab-button tab-active">2人組モード (8列)</button>
+                        <button id="mode3" onclick="setMode(3)" class="tab-button tab-inactive">3人組モード (9列)</button>
+                    </div>
+
+                    <button onclick="generateSeating()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-10 py-4 rounded-2xl font-bold transition-all shadow-xl hover:shadow-indigo-200 active:scale-95 text-lg">
+                        シャッフルして再配置
+                    </button>
+                </header>
+
+                <div id="seating-grid" class="grid-container grid-cols-8">
+                    <!-- JSで生成 -->
+                </div>
+
+                <div class="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div class="p-6 bg-white rounded-2xl shadow-sm border border-slate-200">
+                        <h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">色分け</h2>
+                        <div class="flex gap-6">
+                            <div class="flex items-center gap-3">
+                                <div class="w-6 h-6 rounded-lg class-a border-2 border-sky-200"></div>
+                                <span class="text-sm font-bold text-slate-700">A組 (水色)</span>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <div class="w-6 h-6 rounded-lg class-b border-2 border-green-200"></div>
+                                <span class="text-sm font-bold text-slate-700">B組 (緑)</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="p-6 bg-white rounded-2xl shadow-sm border border-slate-200">
+                        <h2 class="text-sm font-bold text-slate-400 uppercase tracking-wider mb-4">現在のルール</h2>
+                        <p id="rule-text" class="text-sm text-slate-600 leading-relaxed">
+                            横並びの2人がペアです。最後は3人組になり、最終席が右端に配置されます。
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let currentGroupSize = 2; 
+
+        // 欠席者チェックボックスの生成
+        function initAbsentSettings() {
+            const listA = document.getElementById('absent-list-a');
+            const listB = document.getElementById('absent-list-b');
+            
+            for (let i = 1; i <= 24; i++) {
+                listA.appendChild(createCheckbox(`A${String(i).padStart(2, '0')}`));
+            }
+            for (let i = 1; i <= 25; i++) {
+                listB.appendChild(createCheckbox(`B${String(i).padStart(2, '0')}`));
+            }
+        }
+
+        function createCheckbox(id) {
+            const label = document.createElement('label');
+            label.className = "flex items-center gap-1.5 p-1 text-xs cursor-pointer hover:bg-slate-50 rounded transition-colors";
+            label.innerHTML = `
+                <input type="checkbox" value="${id}" class="absent-checkbox w-3.5 h-3.5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500">
+                <span class="text-slate-600 font-bold">${id}</span>
+            `;
+            return label;
+        }
+
+        function getAbsentList() {
+            const checked = document.querySelectorAll('.absent-checkbox:checked');
+            return Array.from(checked).map(cb => cb.value);
+        }
+
+        function setMode(size) {
+            currentGroupSize = size;
+            document.getElementById('mode2').className = size === 2 ? 'tab-button tab-active' : 'tab-button tab-inactive';
+            document.getElementById('mode3').className = size === 3 ? 'tab-button tab-active' : 'tab-button tab-inactive';
+            
+            const grid = document.getElementById('seating-grid');
+            const ruleText = document.getElementById('rule-text');
+
+            if (size === 2) {
+                grid.className = 'grid-container grid-cols-8';
+                ruleText.textContent = "横並びの2人がペアです。最後は3人組になり、最終席が右端に配置されます。";
+            } else {
+                grid.className = 'grid-container grid-cols-9';
+                ruleText.textContent = "横並びの3人が1グループです。最後は人数に応じて調整され、最終席が右端に配置されます。";
+            }
+            generateSeating();
+        }
+
+        function generateSeating() {
+            const grid = document.getElementById('seating-grid');
+            grid.innerHTML = '';
+            const columns = currentGroupSize === 2 ? 8 : 9;
+            const absentList = getAbsentList();
+
+            // 名簿作成（欠席者を除外）
+            let items = [];
+            for (let i = 1; i <= 24; i++) {
+                const id = `A${String(i).padStart(2, '0')}`;
+                if (!absentList.includes(id)) items.push({ id, type: 'A' });
+            }
+            for (let i = 1; i <= 25; i++) {
+                const id = `B${String(i).padStart(2, '0')}`;
+                if (!absentList.includes(id)) items.push({ id, type: 'B' });
+            }
+
+            // シャッフル
+            for (let i = items.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [items[i], items[j]] = [items[j], items[i]];
+            }
+
+            const totalCount = items.length;
+            if (totalCount === 0) {
+                grid.innerHTML = '<div class="col-span-full py-10 text-center text-slate-400 font-bold">全員欠席です。</div>';
+                return;
+            }
+
+            items.forEach((person, index) => {
+                const seat = document.createElement('div');
+                seat.className = `seat ${person.type === 'A' ? 'class-a' : 'class-b'}`;
+                seat.textContent = person.id;
+
+                const isLastOne = index === totalCount - 1;
+                const isRightEdge = (index + 1) % columns === 0;
+
+                if (currentGroupSize === 2) {
+                    // --- 2人組モード ---
+                    // 奇数の場合は最後から3番目以降を強調
+                    const isExtraInTrio = totalCount % 2 !== 0 && index >= totalCount - 3;
+                    if (isExtraInTrio) seat.classList.add('group-highlight');
+                    
+                    if (isLastOne) {
+                        seat.style.gridColumn = columns.toString();
+                    }
+
+                    // コネクタロジック
+                    if (totalCount % 2 === 0) {
+                        // 偶数の場合：単純なペア
+                        if (index % 2 === 0 && !isRightEdge) addConnector(seat, 'horizontal');
+                    } else {
+                        // 奇数の場合：最後を3人組にする
+                        if (index < totalCount - 3) {
+                            if (index % 2 === 0 && !isRightEdge) addConnector(seat, 'horizontal');
+                        } else if (index === totalCount - 3) {
+                            if (!isRightEdge) addConnector(seat, 'horizontal');
+                        } else if (index === totalCount - 2) {
+                            addConnector(seat, 'vertical');
+                        }
+                    }
+                } else {
+                    // --- 3人組モード ---
+                    // 剰余に応じた強調と連結
+                    const remainder = totalCount % 3;
+                    const specialStartIdx = remainder === 0 ? totalCount : 
+                                           remainder === 1 ? totalCount - 4 : totalCount - 2;
+                    
+                    if (index >= specialStartIdx) seat.classList.add('group-highlight');
+                    if (isLastOne) seat.style.gridColumn = columns.toString();
+
+                    if (index < specialStartIdx) {
+                        if (index % 3 !== 2 && !isRightEdge) addConnector(seat, 'horizontal');
+                    } else {
+                        // 特殊グループ（最後）
+                        if (remainder === 1) { // 4人組
+                            if ((index === totalCount - 4 || index === totalCount - 3) && !isRightEdge) {
+                                addConnector(seat, 'horizontal');
+                            } else if (index === totalCount - 2) {
+                                addConnector(seat, 'vertical');
+                            }
+                        } else if (remainder === 2) { // 2人組
+                            if (index === totalCount - 2) {
+                                addConnector(seat, 'vertical');
+                            }
+                        }
+                    }
+                }
+
+                grid.appendChild(seat);
+            });
+        }
+
+        function addConnector(parent, direction) {
+            const line = document.createElement('div');
+            line.className = `connector connector-${direction}`;
+            parent.appendChild(line);
+        }
+
+        window.onload = () => {
+            initAbsentSettings();
+            generateSeating();
+        };
+    </script>
+</body>
+</html>
