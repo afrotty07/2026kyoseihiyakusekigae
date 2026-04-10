@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>席替え＆ペアリング表示</title>
+    <title>席替え＆ペアリング表示 (制約付き)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Noto+Sans+JP:wght@400;700&display=swap');
@@ -79,7 +79,6 @@
         .tab-active { background-color: #1e293b; color: white; }
         .tab-inactive { background-color: #e2e8f0; color: #64748b; }
 
-        /* カスタムスクロールバー */
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
 
@@ -98,8 +97,7 @@
 <body>
 
     <div class="flex min-h-screen main-layout">
-        <!-- Sidebar -->
-        <aside class="sidebar w-80 bg-white border-right border-slate-200 p-6 flex-shrink-0">
+        <aside class="sidebar w-80 bg-white border-r border-slate-200 p-6 flex-shrink-0">
             <h2 class="text-xl font-bold text-slate-800 mb-6">設定</h2>
             
             <details class="mb-6 group" open>
@@ -124,14 +122,14 @@
 
             <div class="space-y-4">
                 <div class="p-4 bg-amber-50 rounded-lg border border-amber-200">
-                    <p class="text-xs text-amber-800 leading-relaxed font-medium">
-                        ※チェックを入れた人は配置から除外されます。残った人数でペア・グループを組みます。
+                    <p class="text-xs text-amber-800 leading-relaxed font-bold mb-2 underline">特殊ルール適用中</p>
+                    <p class="text-[11px] text-amber-800 leading-relaxed font-medium">
+                        ・チェックを入れた人は除外されます。
                     </p>
                 </div>
             </div>
         </aside>
 
-        <!-- Main Content -->
         <main class="flex-grow p-4 md:p-8 overflow-x-hidden">
             <div class="max-w-4xl mx-auto">
                 <header class="text-center mb-10">
@@ -147,9 +145,7 @@
                     </button>
                 </header>
 
-                <div id="seating-grid" class="grid-container grid-cols-8">
-                    <!-- JSで生成 -->
-                </div>
+                <div id="seating-grid" class="grid-container grid-cols-8"></div>
 
                 <div class="mt-12 grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div class="p-6 bg-white rounded-2xl shadow-sm border border-slate-200">
@@ -180,7 +176,6 @@
     <script>
         let currentGroupSize = 2; 
 
-        // 欠席者チェックボックスの生成
         function initAbsentSettings() {
             const listA = document.getElementById('absent-list-a');
             const listB = document.getElementById('absent-list-b');
@@ -226,34 +221,98 @@
             generateSeating();
         }
 
+        
+    
+        function isValidSeating(items, groupSize) {
+            const forbiddenA = ['A07', 'A23'];
+            const forbiddenB = ['B05', 'B24'];
+            const total = items.length;
+
+            // 各グループの範囲を特定
+            let groups = [];
+
+            if (groupSize === 2) {
+                // 2人組モードのロジック
+                if (total % 2 === 0) {
+                    for (let i = 0; i < total; i += 2) groups.push(items.slice(i, i + 2));
+                } else {
+                    // 奇数の場合：最後を3人組にする
+                    for (let i = 0; i < total - 3; i += 2) groups.push(items.slice(i, i + 2));
+                    groups.push(items.slice(total - 3));
+                }
+            } else {
+                // 3人組モードのロジック
+                const remainder = total % 3;
+                let step = 0;
+                if (remainder === 0) {
+                    for (let i = 0; i < total; i += 3) groups.push(items.slice(i, i + 3));
+                } else if (remainder === 1) {
+                    // 最後を4人組にする
+                    for (let i = 0; i < total - 4; i += 3) groups.push(items.slice(i, i + 3));
+                    groups.push(items.slice(total - 4));
+                } else {
+                    // 最後を2人組にする
+                    for (let i = 0; i < total - 2; i += 3) groups.push(items.slice(i, i + 3));
+                    groups.push(items.slice(total - 2));
+                }
+            }
+
+            // 禁止ペアが同じグループに含まれていないかチェック
+            for (let group of groups) {
+                const ids = group.map(p => p.id);
+                const hasA = forbiddenA.some(id => ids.includes(id));
+                const hasB = forbiddenB.some(id => ids.includes(id));
+                
+                if (hasA && hasB) return false; // 片方のグループにA23/A07の誰かとB05/B24の誰かが混ざっていたらNG
+            }
+            return true;
+        }
+
         function generateSeating() {
             const grid = document.getElementById('seating-grid');
             grid.innerHTML = '';
             const columns = currentGroupSize === 2 ? 8 : 9;
             const absentList = getAbsentList();
 
-            // 名簿作成（欠席者を除外）
-            let items = [];
+            let rawItems = [];
             for (let i = 1; i <= 24; i++) {
                 const id = `A${String(i).padStart(2, '0')}`;
-                if (!absentList.includes(id)) items.push({ id, type: 'A' });
+                if (!absentList.includes(id)) rawItems.push({ id, type: 'A' });
             }
             for (let i = 1; i <= 25; i++) {
                 const id = `B${String(i).padStart(2, '0')}`;
-                if (!absentList.includes(id)) items.push({ id, type: 'B' });
+                if (!absentList.includes(id)) rawItems.push({ id, type: 'B' });
             }
 
-            // シャッフル
-            for (let i = items.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [items[i], items[j]] = [items[j], items[i]];
-            }
-
-            const totalCount = items.length;
-            if (totalCount === 0) {
+            if (rawItems.length === 0) {
                 grid.innerHTML = '<div class="col-span-full py-10 text-center text-slate-400 font-bold">全員欠席です。</div>';
                 return;
             }
+
+            // 制約を満たすまでシャッフルを繰り返す (最大1000回で安全停止)
+            let items = [...rawItems];
+            let attempts = 0;
+            let success = false;
+
+            while (attempts < 1000) {
+                // シャッフル
+                for (let i = items.length - 1; i > 0; i--) {
+                    const j = Math.floor(Math.random() * (i + 1));
+                    [items[i], items[j]] = [items[j], items[i]];
+                }
+
+                if (isValidSeating(items, currentGroupSize)) {
+                    success = true;
+                    break;
+                }
+                attempts++;
+            }
+
+            if (!success) {
+                console.error("制約を満たす配置が見つかりませんでした。");
+            }
+
+            const totalCount = items.length;
 
             items.forEach((person, index) => {
                 const seat = document.createElement('div');
@@ -264,8 +323,6 @@
                 const isRightEdge = (index + 1) % columns === 0;
 
                 if (currentGroupSize === 2) {
-                    // --- 2人組モード ---
-                    // 奇数の場合は最後から3番目以降を強調
                     const isExtraInTrio = totalCount % 2 !== 0 && index >= totalCount - 3;
                     if (isExtraInTrio) seat.classList.add('group-highlight');
                     
@@ -273,12 +330,9 @@
                         seat.style.gridColumn = columns.toString();
                     }
 
-                    // コネクタロジック
                     if (totalCount % 2 === 0) {
-                        // 偶数の場合：単純なペア
                         if (index % 2 === 0 && !isRightEdge) addConnector(seat, 'horizontal');
                     } else {
-                        // 奇数の場合：最後を3人組にする
                         if (index < totalCount - 3) {
                             if (index % 2 === 0 && !isRightEdge) addConnector(seat, 'horizontal');
                         } else if (index === totalCount - 3) {
@@ -288,8 +342,6 @@
                         }
                     }
                 } else {
-                    // --- 3人組モード ---
-                    // 剰余に応じた強調と連結
                     const remainder = totalCount % 3;
                     const specialStartIdx = remainder === 0 ? totalCount : 
                                            remainder === 1 ? totalCount - 4 : totalCount - 2;
@@ -300,14 +352,13 @@
                     if (index < specialStartIdx) {
                         if (index % 3 !== 2 && !isRightEdge) addConnector(seat, 'horizontal');
                     } else {
-                        // 特殊グループ（最後）
-                        if (remainder === 1) { // 4人組
+                        if (remainder === 1) {
                             if ((index === totalCount - 4 || index === totalCount - 3) && !isRightEdge) {
                                 addConnector(seat, 'horizontal');
                             } else if (index === totalCount - 2) {
                                 addConnector(seat, 'vertical');
                             }
-                        } else if (remainder === 2) { // 2人組
+                        } else if (remainder === 2) {
                             if (index === totalCount - 2) {
                                 addConnector(seat, 'vertical');
                             }
